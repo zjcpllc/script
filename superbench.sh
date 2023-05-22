@@ -96,7 +96,7 @@ benchinit() {
 
 	if  [ ! -e './speedtest-cli/speedtest' ]; then
 		echo " Installing Speedtest-cli ..."
-		wget --no-check-certificate -qO speedtest.tgz https://cdn.jsdelivr.net/gh/oooldking/script@1.1.7/speedtest_cli/ookla-speedtest-1.0.0-$(uname -m)-linux.tgz > /dev/null 2>&1
+		wget --no-check-certificate -qO speedtest.tgz https://github.com/zjzjcp/script/tree/master/speedtest_cli/ookla-speedtest-1.2.0-linux-$(uname -m).tgz > /dev/null 2>&1
 	fi
 	mkdir -p speedtest-cli && tar zxvf speedtest.tgz -C ./speedtest-cli/ > /dev/null 2>&1 && chmod a+rx ./speedtest-cli/speedtest
 
