@@ -2,30 +2,23 @@
 #
 # Description: Auto system info & I/O test & network to China script
 #
-# Copyright (C) 2017 - 2020 Oldking <oooldking@gmail.com>
-#
-# Thanks: Bench.sh <i@teddysun.com>
-#
-# URL: https://www.oldking.net/350.html
-#
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 SKYBLUE='\033[0;36m'
 PLAIN='\033[0m'
+BrowserUA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.74 Safari/537.36"
+GeekbenchTest='Y'
 
 about() {
 	echo ""
 	echo " ========================================================= "
 	echo " \                 Superbench.sh  Script                 / "
 	echo " \       Basic system info, I/O test and speedtest       / "
-	echo " \                   v1.1.7 (7 Apr 2020)                 / "
-	echo " \                   Created by Oldking                  / "
+	echo " \                   v1.3.10 (2023-05-12)                / "
 	echo " ========================================================= "
 	echo ""
-	echo " Intro: https://www.oldking.net/350.html"
-	echo " Copyright (C) 2020 Oldking oooldking@gmail.com"
 	echo ""
 }
 
@@ -59,64 +52,169 @@ benchinit() {
 	fi
 
 	[[ $EUID -ne 0 ]] && echo -e "${RED}Error:${PLAIN} This script must be run as root!" && exit 1
-
-	if  [ ! -e '/usr/bin/python' ]; then
-	        echo " Installing Python ..."
-	            if [ "${release}" == "centos" ]; then
-	            		yum update > /dev/null 2>&1
-	                    yum -y install python > /dev/null 2>&1
-	                else
-	                	apt-get update > /dev/null 2>&1
-	                    apt-get -y install python > /dev/null 2>&1
-	                fi
-	        
+	
+	# determine architecture of host
+	ARCH=$(uname -m)
+	if [[ $ARCH = *x86_64* ]]; then
+		# host is running a 64-bit kernel
+		ARCH="x64"
+	elif [[ $ARCH = *i?86* ]]; then
+		# host is running a 32-bit kernel
+		ARCH="x86"
+	elif [[ $ARCH = *aarch* || $ARCH = *arm* ]]; then
+		KERNEL_BIT=`getconf LONG_BIT`
+		if [[ $KERNEL_BIT = *64* ]]; then
+			# host is running an ARM 64-bit kernel
+			ARCH="aarch64"
+		else
+			# host is running an ARM 32-bit kernel
+			ARCH="arm"
+		fi
+		echo -e "\nARM compatibility is considered *experimental*"
+	else
+		# host is running a non-supported kernel
+		echo -e "Architecture not supported by Superbench."
+		exit 1
 	fi
 
-	if  [ ! -e '/usr/bin/curl' ]; then
-	        echo " Installing Curl ..."
-	            if [ "${release}" == "centos" ]; then
-	                yum update > /dev/null 2>&1
-	                yum -y install curl > /dev/null 2>&1
-	            else
-	                apt-get update > /dev/null 2>&1
-	                apt-get -y install curl > /dev/null 2>&1
-	            fi
+	if  [[ "$(command -v dmidecode)" == "" ]]; then
+		echo " Installing Dmidecode ..."
+		if [[ ! -z "$(type -p yum)" ]]; then
+			yum -y install dmidecode > /dev/null 2>&1
+		else
+			apt-get update > /dev/null 2>&1
+			apt-get -y install dmidecode > /dev/null 2>&1
+		fi
+	fi
+	
+	if  [[ "$(command -v curl)" == "" ]]; then
+		echo " Installing Curl ..."
+		if [[ ! -z "$(type -p yum)" ]]; then
+			yum -y install curl > /dev/null 2>&1
+		else
+			apt-get update > /dev/null 2>&1
+			apt-get -y install curl > /dev/null 2>&1
+		fi
 	fi
 
-	if  [ ! -e '/usr/bin/wget' ]; then
-	        echo " Installing Wget ..."
-	            if [ "${release}" == "centos" ]; then
-	                yum update > /dev/null 2>&1
-	                yum -y install wget > /dev/null 2>&1
-	            else
-	                apt-get update > /dev/null 2>&1
-	                apt-get -y install wget > /dev/null 2>&1
-	            fi
+	if  [[ "$(command -v tar)" == "" ]]; then
+		echo " Installing Tar ..."
+		if [[ ! -z "$(type -p yum)" ]]; then
+			yum -y install tar > /dev/null 2>&1
+		else
+			apt-get update > /dev/null 2>&1
+			apt-get -y install tar > /dev/null 2>&1
+		fi
+	fi
+	
+	if  [[ "$(command -v wget)" == "" ]]; then
+		echo " Installing Wget ..."
+		if [[ ! -z "$(type -p yum)" ]]; then
+			yum -y install wget > /dev/null 2>&1
+		else
+			apt-get update > /dev/null 2>&1
+			apt-get -y install wget > /dev/null 2>&1
+		fi
+	fi
+
+	if [[ "$(command -v unzip)" == "" ]]; then
+		echo " Installing UnZip ..."
+		if [[ ! -z "$(type -p yum)" ]]; then
+			yum -y install unzip > /dev/null 2>&1
+		else
+			apt-get update > /dev/null 2>&1
+			apt-get -y install unzip > /dev/null 2>&1
+		fi
+	fi
+	
+	IsGlobal="0"
+	delay="$(ping -4 -c 2 -w 2 www.google.com | grep rtt | cut -d'/' -f4 | awk '{ print $3 }' | sed -n '/^[0-9]\+\(\.[0-9]\+\)\?$/p')";
+	if [ "$delay" != "" ] ; then
+		IsGlobal="1"
 	fi
 
 	if  [ ! -e './speedtest-cli/speedtest' ]; then
 		echo " Installing Speedtest-cli ..."
-		wget --no-check-certificate -qO speedtest.tgz https://github.com/zjzjcp/script/tree/master/speedtest_cli/ookla-speedtest-1.2.0-linux-$(uname -m).tgz > /dev/null 2>&1
+		wget --no-check-certificate -qO speedtest.tgz https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-$(uname -m).tgz > /dev/null 2>&1
+		if [[ $? -ne '0' ]]; then
+			wget --no-check-certificate -qO speedtest.tgz https://down.vpsaff.net/linux/speedtest/ookla-speedtest/1.2.0/ookla-speedtest-1.2.0-linux-$(uname -m).tgz > /dev/null 2>&1
+		fi
 	fi
 	mkdir -p speedtest-cli && tar zxvf speedtest.tgz -C ./speedtest-cli/ > /dev/null 2>&1 && chmod a+rx ./speedtest-cli/speedtest
-
-	if  [ ! -e 'tools.py' ]; then
-		echo " Installing tools.py ..."
-		wget --no-check-certificate https://github.com/zjzjcp/script/blob/master/tools.py > /dev/null 2>&1
+	
+	if [ ! -e './besttrace4/besttrace' ]; then
+		echo " Installing Best Trace..."
+		#wget --no-check-certificate -T 10 -qO besttrace4linux.zip https://cdn.ipip.net/17mon/besttrace4linux.zip > /dev/null 2>&1
+		#if [[ $? -ne '0' ]]; then
+			wget --no-check-certificate -O besttrace4linux.zip https://down.vpsaff.net/linux/besttrace4linux.zip > /dev/null 2>&1
+		#fi
+		unzip besttrace4linux.zip -d besttrace4 > /dev/null 2>&1
 	fi
-	chmod a+rx tools.py
-
-	if  [ ! -e 'fast_com.py' ]; then
-		echo " Installing Fast.com-cli ..."
-		wget --no-check-certificate https://cdn.jsdelivr.net/gh/sanderjo/fast.com@master/fast_com.py > /dev/null 2>&1
-		wget --no-check-certificate https://cdn.jsdelivr.net/gh/sanderjo/fast.com@master/fast_com_example_usage.py > /dev/null 2>&1
+	chmod +x ./besttrace4/besttrace
+	
+	
+	if [[ "$GeekbenchTest" == "Y" ]]; then
+		if [[ ! -e './geekbench' ]]; then
+			mkdir geekbench
+		fi
+		GeekbenchVer=6
+		if [[ $ARCH = *x86* ]]; then
+			download_geekbench4;
+			$GeekbenchVer=4
+		elif [[ $ARCH != *aarch64* && $ARCH != *arm* ]]; then
+			if [ ! -e './geekbench/geekbench6' ]; then
+				echo " Installing Geekbench 6..."
+				if [[ "$IsGlobal" == "1" ]];then
+					wget -qO- https://cdn.geekbench.com/Geekbench-6.0.3-Linux.tar.gz | tar xz --strip-components=1 -C ./geekbench &>/dev/null
+				else
+					wget -qO- https://down.vpsaff.net/linux/geekbench/Geekbench-6.0.3-Linux.tar.gz  | tar xz --strip-components=1 -C ./geekbench &>/dev/null
+				fi
+			fi
+			chmod +x ./geekbench/geekbench6
+		elif [[ $ARCH == *aarch64* ]]; then
+			if [ ! -e './geekbench/geekbench6' ]; then
+				echo " Installing Geekbench 6..."
+				if [[ "$IsGlobal" == "1" ]];then
+					wget -qO- https://cdn.geekbench.com/Geekbench-6.0.3-LinuxARMPreview.tar.gz | tar xz --strip-components=1 -C ./geekbench &>/dev/null
+				else
+					wget -qO- https://down.vpsaff.net/linux/geekbench/Geekbench-6.0.3-LinuxARMPreview.tar.gz  | tar xz --strip-components=1 -C ./geekbench &>/dev/null
+				fi
+			fi
+			chmod +x ./geekbench/geekbench6
+		else
+			if [ ! -e './geekbench/geekbench5' ]; then
+				echo " Installing Geekbench 5..."
+				wget -qO- https://down.vpsaff.net/linux/geekbench/Geekbench-5.4.4-LinuxARMPreview.tar.gz  | tar xz --strip-components=1 -C ./geekbench &>/dev/null
+			fi
+			chmod +x ./geekbench/geekbench5
+		fi
 	fi
-	chmod a+rx fast_com.py
-	chmod a+rx fast_com_example_usage.py
 
 	sleep 5
 
 	start=$(date +%s) 
+}
+
+download_geekbench4(){
+	if [[ ! -d ./geekbench ]]; then
+		mkdir geekbench
+	fi
+	if [[ ! -d ./geekbench/geekbench4 ]]; then
+		echo -n -e " Installing Geekbench 4..."
+		wget -qO- https://down.vpsaff.net/linux/geekbench/Geekbench-4.4.4-Linux.tar.gz | tar xz --strip-components=1 -C ./geekbench &>/dev/null
+	fi
+	chmod +x ./geekbench/geekbench4
+}
+
+download_geekbench5(){
+	if [[ ! -d ./geekbench ]]; then
+		mkdir geekbench
+	fi
+	if [[ ! -d ./geekbench/geekbench5 ]]; then
+		echo " Installing Geekbench 5..."
+		wget -qO- https://down.vpsaff.net/linux/geekbench/Geekbench-5.4.4-Linux.tar.gz  | tar xz --strip-components=1 -C ./geekbench &>/dev/null
+	fi
+	chmod +x ./geekbench/geekbench5
 }
 
 get_opsy() {
@@ -126,19 +224,23 @@ get_opsy() {
 }
 
 next() {
-    printf "%-70s\n" "-" | sed 's/\s/-/g' | tee -a $log
+    printf "%-82s\n" "-" | sed 's/\s/-/g' | tee -a $log
 }
 
 speed_test(){
 	if [[ $1 == '' ]]; then
-		speedtest-cli/speedtest -p no --accept-license > $speedLog 2>&1
+		speedtest-cli/speedtest -p no --accept-license --accept-gdpr > $speedLog 2>&1
 		is_upload=$(cat $speedLog | grep 'Upload')
 		result_speed=$(cat $speedLog | awk -F ' ' '/Result/{print $3}')
 		if [[ ${is_upload} ]]; then
 	        local REDownload=$(cat $speedLog | awk -F ' ' '/Download/{print $3}')
 	        local reupload=$(cat $speedLog | awk -F ' ' '/Upload/{print $3}')
-	        local relatency=$(cat $speedLog | awk -F ' ' '/Latency/{print $2}')
-
+	        local relatency=$(cat $speedLog | awk -F ' ' '/Idle/{print $3}')
+	        local packetLoss=$(cat $speedLog | awk -F ' ' '/Packet/{print $3}')
+			local result=$(cat $speedLog | grep "Packet Loss: Not available.")
+			if [[ "$result" != "" ]]; then
+				packetLoss="Not available"
+			fi
 	        temp=$(echo "$relatency" | awk -F '.' '{print $1}')
         	if [[ ${temp} -gt 50 ]]; then
             	relatency="(*)"${relatency}
@@ -147,23 +249,28 @@ speed_test(){
 
 	        temp=$(echo "${REDownload}" | awk -F ' ' '{print $1}')
 	        if [[ $(awk -v num1=${temp} -v num2=0 'BEGIN{print(num1>num2)?"1":"0"}') -eq 1 ]]; then
-	        	printf "${YELLOW}%-18s${GREEN}%-18s${RED}%-20s${SKYBLUE}%-12s${PLAIN}\n" " ${nodeName}" "${reupload} Mbit/s" "${REDownload} Mbit/s" "${relatency} ms" | tee -a $log
+	        	printf "${YELLOW}%-18s${GREEN}%-18s${RED}%-20s${SKYBLUE}%-12s${PLAIN}%-20s\n" " ${nodeName}" "${reupload} Mbit/s" "${REDownload} Mbit/s" "${relatency} ms" "${packetLoss}" | tee -a $log
 	        fi
 		else
 	        local cerror="ERROR"
 		fi
 	else
-		speedtest-cli/speedtest -p no -s $1 --accept-license > $speedLog 2>&1
+		speedtest-cli/speedtest -p no -s $1 --accept-license --accept-gdpr > $speedLog 2>&1
 		is_upload=$(cat $speedLog | grep 'Upload')
 		if [[ ${is_upload} ]]; then
 	        local REDownload=$(cat $speedLog | awk -F ' ' '/Download/{print $3}')
 	        local reupload=$(cat $speedLog | awk -F ' ' '/Upload/{print $3}')
-	        local relatency=$(cat $speedLog | awk -F ' ' '/Latency/{print $2}')
+	        local relatency=$(cat $speedLog | awk -F ' ' '/Idle/{print $3}')
+	        local packetLoss=$(cat $speedLog | awk -F ' ' '/Packet/{print $3}')
+			local result=$(cat $speedLog | grep "Packet Loss: Not available.")
+			if [[ "$result" != "" ]]; then
+				packetLoss="Not available"
+			fi
 	        local nodeName=$2
 
 	        temp=$(echo "${REDownload}" | awk -F ' ' '{print $1}')
 	        if [[ $(awk -v num1=${temp} -v num2=0 'BEGIN{print(num1>num2)?"1":"0"}') -eq 1 ]]; then
-	        	printf "${YELLOW}%-18s${GREEN}%-18s${RED}%-20s${SKYBLUE}%-12s${PLAIN}\n" " ${nodeName}" "${reupload} Mbit/s" "${REDownload} Mbit/s" "${relatency} ms" | tee -a $log
+	        	printf "${YELLOW}%-18s${GREEN}%-18s${RED}%-20s${SKYBLUE}%-12s${PLAIN}%-20s\n" " ${nodeName}" "${reupload} Mbit/s" "${REDownload} Mbit/s" "${relatency} ms" "${packetLoss}" | tee -a $log
 			fi
 		else
 	        local cerror="ERROR"
@@ -171,55 +278,68 @@ speed_test(){
 	fi
 }
 
-print_speedtest() {
-	printf "%-18s%-18s%-20s%-12s\n" " Node Name" "Upload Speed" "Download Speed" "Latency" | tee -a $log
+print_china_speedtest() {
+	printf "%-18s%-18s%-20s%-12s%-20s\n" " Node Name" "Upload Speed" "Download Speed" "Latency" "Packet Loss" | tee -a $log
     speed_test '' 'Speedtest.net'
-    speed_fast_com
-    speed_test '27377' 'Beijing 5G   CT'
-    speed_test '26352' 'Nanjing 5G   CT'
-    speed_test '17145' 'Hefei 5G     CT'
+    speed_test '3633'  'Shanghai     CT'
 	speed_test '27594' 'Guangzhou 5G CT'
-	speed_test '27154' 'TianJin 5G   CU'
+    speed_test '26352' 'Nanjing 5G   CT'
+    speed_test '34115' 'TianJin 5G   CT'
+#   speed_test '7509'  'Hangzhou     CT'
+	speed_test '23844' 'Wuhan        CT'
+	speed_test '5145'  'Beijing      CU'
 	speed_test '24447' 'Shanghai 5G  CU'
 	speed_test '26678' 'Guangzhou 5G CU'
-	speed_test '17184' 'Tianjin 5G   CM'
-	speed_test '26850' 'Wuxi 5G      CM'
+#	speed_test '16192' 'ShenZhen     CU'
+	speed_test '9484'  'Changchun    CU'
+	speed_test '45170' 'Wu Xi        CU'
+	speed_test '13704' 'Nanjing      CU'
+#	speed_test '37235' 'Shenyang     CU'
+#	speed_test '41009' 'Wuhan 5G     CU'
+	speed_test '25637' 'Shanghai 5G  CM'
+#	speed_test '26656' 'Harbin       CM'
+	speed_test '26940' 'Yinchuan     CM'
 	speed_test '27249' 'Nanjing 5G   CM'
-	speed_test '26404' 'Hefei 5G     CM'
-	speed_test '28491' 'Changsha 5G  CM'
+#	speed_test '40131' 'Suzhou 5G    CM'
+	speed_test '15863' 'Nanning      CM'
+	speed_test '25858' 'Beijing      CM'
+	speed_test '4575'  'Chengdu      CM'
+	speed_test '5505'  'Beijing      BN'
+	speed_test '35527' 'Chengdu      BN'
+}
 
-	rm -rf speedtest*
+print_global_speedtest() {
+	printf "%-18s%-18s%-20s%-12s%-20s\n" " Node Name" "Upload Speed" "Download Speed" "Latency" "Packet Loss" | tee -a $log
+    speed_test '1536'  'Hong Kong    CN'
+    speed_test '33250' 'Macau        CN'
+	speed_test '29106' 'Taiwan       CN'
+	speed_test '40508' 'Singapore    SG'
+#	speed_test '4956'  'Kuala Lumpur MY'
+#	speed_test '38134' 'Fukuoka      JP'
+	speed_test '28910' 'Tokyo        JP'
+	speed_test '6527'  'Seoul        KR'
+    speed_test '18229' 'Los Angeles  US'
+#	speed_test '15786' 'San Jose     US'
+	speed_test '41248' 'London       UK'
+	speed_test '10010' 'Frankfurt    DE'
+	speed_test '21268' 'France       FR'
 }
 
 print_speedtest_fast() {
-	printf "%-18s%-18s%-20s%-12s\n" " Node Name" "Upload Speed" "Download Speed" "Latency" | tee -a $log
+	printf "%-18s%-18s%-20s%-12s%-20s\n" " Node Name" "Upload Speed" "Download Speed" "Latency" "Packet Loss" | tee -a $log
     speed_test '' 'Speedtest.net'
-    speed_fast_com
-    speed_test '27377' 'Beijing 5G   CT'
-	speed_test '24447' 'ShangHai 5G  CU'
-	speed_test '27249' 'Nanjing 5G   CM'
+    speed_test '3633'  'Shanghai     CT'
+	speed_test '27594' 'Guangzhou 5G CT'
+	speed_test '24447' 'Shanghai 5G  CU'
+	speed_test '9484'  'Changchun    CU'
+	speed_test '45170' 'Wu Xi        CU'
+	speed_test '25637' 'Shanghai 5G  CM'
+	speed_test '15863' 'Nanning      CM'
+	speed_test '4575'  'Chengdu      CM'
+	speed_test '5505'  'Beijing      BN'
+	speed_test '35527' 'Chengdu      BN'
 	 
 	rm -rf speedtest*
-}
-
-speed_fast_com() {
-	temp=$(python fast_com_example_usage.py 2>&1)
-	is_down=$(echo "$temp" | grep 'Result') 
-		if [[ ${is_down} ]]; then
-	        temp1=$(echo "$temp" | awk -F ':' '/Result/{print $2}')
-	        temp2=$(echo "$temp1" | awk -F ' ' '/Mbps/{print $1}')
-	        local REDownload="$temp2 Mbit/s"
-	        local reupload="0.00 Mbit/s"
-	        local relatency="-"
-	        local nodeName="Fast.com"
-
-	        printf "${YELLOW}%-18s${GREEN}%-18s${RED}%-20s${SKYBLUE}%-12s${PLAIN}\n" " ${nodeName}" "${reupload}" "${REDownload}" "${relatency}" | tee -a $log
-		else
-	        local cerror="ERROR"
-		fi
-	rm -rf fast_com_example_usage.py
-	rm -rf fast_com.py
-
 }
 
 io_test() {
@@ -246,50 +366,20 @@ power_time() {
 	result=$(smartctl -a $(result=$(cat /proc/mounts) && echo $(echo "$result" | awk '/data=ordered/{print $1}') | awk '{print $1}') 2>&1) && power_time=$(echo "$result" | awk '/Power_On/{print $10}') && echo "$power_time"
 }
 
-install_smart() {
-	if  [ ! -e '/usr/sbin/smartctl' ]; then
-		echo "Installing Smartctl ..."
-	    if [ "${release}" == "centos" ]; then
-	    	yum update > /dev/null 2>&1
-	        yum -y install smartmontools > /dev/null 2>&1
-	    else
-	    	apt-get update > /dev/null 2>&1
-	        apt-get -y install smartmontools > /dev/null 2>&1
-	    fi      
-	fi
-}
-
 ip_info4(){
-	ip_date=$(curl -4 -s http://api.ip.la/en?json)
-	echo $ip_date > ip_json.json
-	isp=$(python tools.py geoip isp)
-	as_tmp=$(python tools.py geoip as)
-	asn=$(echo $as_tmp | awk -F ' ' '{print $1}')
-	org=$(python tools.py geoip org)
-	if [ -z "ip_date" ]; then
-		echo $ip_date
-		echo "hala"
-		country=$(python tools.py ipip country_name)
-		city=$(python tools.py ipip city)
-		countryCode=$(python tools.py ipip country_code)
-		region=$(python tools.py ipip province)
-	else
-		country=$(python tools.py geoip country)
-		city=$(python tools.py geoip city)
-		countryCode=$(python tools.py geoip countryCode)
-		region=$(python tools.py geoip regionName)	
+	local org="$(wget -q -T10 -O- ipinfo.io/org)"
+    local city="$(wget -q -T10 -O- ipinfo.io/city)"
+    local country="$(wget -q -T10 -O- ipinfo.io/country)"
+    local region="$(wget -q -T10 -O- ipinfo.io/region)"
+	if [[ -n "$org" ]]; then
+		echo -e " Organization         : ${YELLOW}$org${PLAIN}" | tee -a $log
 	fi
-	if [ -z "$city" ]; then
-		city=${region}
+	if [[ -n "$city" && -n "country" ]]; then
+		echo -e " Location             : ${SKYBLUE}$city / ${YELLOW}$country${PLAIN}" | tee -a $log
 	fi
-
-	echo -e " ASN & ISP            : ${SKYBLUE}$asn, $isp${PLAIN}" | tee -a $log
-	echo -e " Organization         : ${YELLOW}$org${PLAIN}" | tee -a $log
-	echo -e " Location             : ${SKYBLUE}$city, ${YELLOW}$country / $countryCode${PLAIN}" | tee -a $log
-	echo -e " Region               : ${SKYBLUE}$region${PLAIN}" | tee -a $log
-
-	rm -rf tools.py
-	rm -rf ip_json.json
+	if [[ -n "$region" ]]; then
+		echo -e " Region               : ${SKYBLUE}$region${PLAIN}" | tee -a $log
+	fi
 }
 
 virt_check(){
@@ -299,7 +389,7 @@ virt_check(){
 
 	virtualx=$(dmesg) 2>/dev/null
 
-    if  [ $(which dmidecode) ]; then
+    if  [[ "$(command -v dmidecode)" != ""  ]]; then
 		sys_manu=$(dmidecode -s system-manufacturer) 2>/dev/null
 		sys_product=$(dmidecode -s system-product-name) 2>/dev/null
 		sys_ver=$(dmidecode -s system-version) 2>/dev/null
@@ -342,13 +432,6 @@ virt_check(){
 	else
 		virtual="Dedicated"
 	fi
-}
-
-power_time_check(){
-	echo -ne " Power time of disk   : "
-	install_smart
-	ptime=$(power_time)
-	echo -e "${SKYBLUE}$ptime Hours${PLAIN}"
 }
 
 freedisk() {
@@ -408,7 +491,12 @@ print_io() {
 print_system_info() {
 	echo -e " CPU Model            : ${SKYBLUE}$cname${PLAIN}" | tee -a $log
 	echo -e " CPU Cores            : ${YELLOW}$cores Cores ${SKYBLUE}$freq MHz $arch${PLAIN}" | tee -a $log
-	echo -e " CPU Cache            : ${SKYBLUE}$corescache ${PLAIN}" | tee -a $log
+	if [[ -n "$coresL3cache" ]]; then
+		echo -e " CPU Cache            : ${SKYBLUE}L2 $coresL2cache & ${YELLOW}L3 $coresL3cache${PLAIN}" | tee -a $log
+	else
+		echo -e " CPU Cache            : ${SKYBLUE}$corescache ${PLAIN}" | tee -a $log
+	fi
+	echo -e " CPU Flags            : ${SKYBLUE}AES-NI $aes & ${YELLOW}VM-x/AMD-V $virt ${PLAIN}" | tee -a $log
 	echo -e " OS                   : ${SKYBLUE}$opsy ($lbit Bit) ${YELLOW}$virtual${PLAIN}" | tee -a $log
 	echo -e " Kernel               : ${SKYBLUE}$kern${PLAIN}" | tee -a $log
 	echo -e " Total Space          : ${SKYBLUE}$disk_used_size GB / ${YELLOW}$disk_total_size GB ${PLAIN}" | tee -a $log
@@ -416,7 +504,7 @@ print_system_info() {
 	echo -e " Total SWAP           : ${SKYBLUE}$uswap MB / $swap MB${PLAIN}" | tee -a $log
 	echo -e " Uptime               : ${SKYBLUE}$up${PLAIN}" | tee -a $log
 	echo -e " Load Average         : ${SKYBLUE}$load${PLAIN}" | tee -a $log
-	echo -e " TCP CC               : ${YELLOW}$tcpctrl${PLAIN}" | tee -a $log
+	echo -e " TCP CC               : ${SKYBLUE}$tcpctrl + ${YELLOW}$qdisc${PLAIN}" | tee -a $log
 }
 
 print_end_time() {
@@ -446,6 +534,16 @@ get_system_info() {
 	cores=$( awk -F: '/model name/ {core++} END {print core}' /proc/cpuinfo )
 	freq=$( awk -F: '/cpu MHz/ {freq=$2} END {print freq}' /proc/cpuinfo | sed 's/^[ \t]*//;s/[ \t]*$//' )
 	corescache=$( awk -F: '/cache size/ {cache=$2} END {print cache}' /proc/cpuinfo | sed 's/^[ \t]*//;s/[ \t]*$//' )
+	if [[ -e /sys/devices/system/cpu/cpu0/cache/index2/size ]]; then
+		coresL2cache=$(cat /sys/devices/system/cpu/cpu0/cache/index2/size)
+    fi
+	if [[ -e /sys/devices/system/cpu/cpu0/cache/index3/size ]]; then
+		coresL3cache=$(cat /sys/devices/system/cpu/cpu0/cache/index3/size)
+    fi
+	aes=$(cat /proc/cpuinfo | grep aes)
+	[[ -z "$aes" ]] && aes="Disabled" || aes="Enabled"
+	virt=$(cat /proc/cpuinfo | grep 'vmx\|svm')
+	[[ -z "$virt" ]] && virt="Disabled" || virt="Enabled"
 	tram=$( free -m | awk '/Mem/ {print $2}' )
 	uram=$( free -m | awk '/Mem/ {print $3}' )
 	bram=$( free -m | awk '/Mem/ {print $6}' )
@@ -464,21 +562,324 @@ get_system_info() {
 	disk_used_size=$( calc_disk ${disk_size2[@]} )
 
 	tcpctrl=$( sysctl net.ipv4.tcp_congestion_control | awk -F ' ' '{print $3}' )
+	qdisc=$(sysctl -n net.core.default_qdisc)
 
 	virt_check
 }
 
+besttrace_test() {
+    if [ "$2" = "tcp" ] || [ "$2" = "TCP" ]; then
+        echo -e "\nTraceroute to $4 (TCP Mode, Max $3 Hop)" | tee -a $log
+        echo -e "============================================================" | tee -a $log
+        ./besttrace4/besttrace -g en -q 1 -n -T -m $3 $1 | tee -a $log
+    else
+        echo -e "\nTracecroute to $4 (ICMP Mode, Max $3 Hop)" | tee -a $log
+        echo -e "============================================================" | tee -a $log
+        ./besttrace4/besttrace -g en -q 1 -n -m $3 $1 | tee -a $log
+    fi
+}
+
+print_besttrace_test(){
+	besttrace_test "113.108.209.1" "TCP" "30" "China, Guangzhou CT"
+	besttrace_test "180.153.28.5" "TCP" "30" "China, Shanghai CT"
+    besttrace_test "180.149.128.9" "TCP" "30" "China, Beijing CT"
+	besttrace_test "210.21.4.130" "TCP" "30" "China, Guangzhou CU"
+	besttrace_test "58.247.8.158" "TCP" "30" "China, Shanghai CU"
+	besttrace_test "123.125.99.1" "TCP" "30" "China, Beijing CU"
+	besttrace_test "120.196.212.25" "TCP" "30" "China, Guangzhou CM"
+    besttrace_test "221.183.55.22" "TCP" "30" "China, Shanghai CM"
+	besttrace_test "211.136.25.153" "TCP" "30" "China, Beijing CM"
+	besttrace_test "211.167.230.100" "TCP"  "30" "China, Beijing Dr.Peng Network IDC Network"	
+}
+
+geekbench() {
+	echo -e " Geekbench v${GeekbenchVer} Test    :" | tee -a $log
+	if test -f "geekbench.license"; then
+		./geekbench/geekbench$GeekbenchVer --unlock `cat geekbench.license` > /dev/null 2>&1
+	fi
+	
+	GEEKBENCH_TEST=$(./geekbench/geekbench$GeekbenchVer --upload 2>/dev/null | grep "https://browser")
+	
+	if [[ -z "$GEEKBENCH_TEST" ]]; then
+		echo -e " ${RED}Geekbench v${GeekbenchVer} test failed. Run manually to determine cause.${PLAIN}" | tee -a $log
+		GEEKBENCH_URL=''
+		if [[ $ARCH != *aarch64* && $ARCH != *arm* ]]; then
+			if [[ $GeekbenchVer == *6* ]]; then
+				rm -rf geekbench
+				download_geekbench5;
+				echo -n -e "\r" | tee -a $log
+				GeekbenchVer=5;
+				geekbench;
+			elif [[ $GeekbenchVer == *5* ]]; then
+				rm -rf geekbench
+				download_geekbench4;
+				echo -n -e "\r" | tee -a $log
+				GeekbenchVer=4;
+				geekbench;
+			fi
+		fi
+	else
+		GEEKBENCH_URL=$(echo -e $GEEKBENCH_TEST | head -1)
+		GEEKBENCH_URL_CLAIM=$(echo $GEEKBENCH_URL | awk '{ print $2 }')
+		GEEKBENCH_URL=$(echo $GEEKBENCH_URL | awk '{ print $1 }')
+		sleep 5
+		([[ $GeekbenchVer == *6* ]] || [[ $GeekbenchVer == *5* ]]) && GEEKBENCH_SCORES=$(curl -s $GEEKBENCH_URL | grep "div class='score'") || GEEKBENCH_SCORES=$(curl -s $GEEKBENCH_URL | grep "span class='score'")
+		GEEKBENCH_SCORES_SINGLE=$(echo $GEEKBENCH_SCORES | awk -v FS="(>|<)" '{ print $3 }')
+		GEEKBENCH_SCORES_MULTI=$(echo $GEEKBENCH_SCORES | awk -v FS="(>|<)" '{ print $7 }')
+		
+		echo -e "       Single Core    : ${YELLOW}$GEEKBENCH_SCORES_SINGLE  $grank${PLAIN}"  | tee -a $log
+		echo -e "        Multi Core    : ${YELLOW}$GEEKBENCH_SCORES_MULTI${PLAIN}" | tee -a $log
+		[ ! -z "$GEEKBENCH_URL_CLAIM" ] && echo -e "$GEEKBENCH_URL_CLAIM" >> geekbench_claim.url 2> /dev/null
+	fi
+	rm -rf geekbench
+}
+
+function UnlockNetflixTest() {
+    local result1=$(curl --user-agent "${BrowserUA}" -fsL --write-out %{http_code} --output /dev/null --max-time 10 "https://www.netflix.com/title/81280792" 2>&1)
+	
+    if [[ "$result1" == "404" ]];then
+        echo -e " Netflix              : ${YELLOW}Originals Only${PLAIN}" | tee -a $log
+	elif  [[ "$result1" == "403" ]];then
+        echo -e " Netflix              : ${RED}No${PLAIN}" | tee -a $log
+	elif [[ "$result1" == "200" ]];then
+		local region=`tr [:lower:] [:upper:] <<< $(curl --user-agent "${BrowserUA}" -fs --max-time 10 --write-out %{redirect_url} --output /dev/null "https://www.netflix.com/title/80018499" | cut -d '/' -f4 | cut -d '-' -f1)` ;
+		if [[ ! -n "$region" ]];then
+			region="US";
+		fi
+		echo -e " Netflix              : ${GREEN}Yes (Region: ${region})${PLAIN}" | tee -a $log
+	elif  [[ "$result1" == "000" ]];then
+		echo -e " Netflix              : ${RED}Network connection failed${PLAIN}" | tee -a $log
+    fi   
+}
+
+function UnlockYouTubePremiumTest() {
+    local tmpresult=$(curl --max-time 10 -sS -H "Accept-Language: en" "https://www.youtube.com/premium" 2>&1 )
+    local region=$(curl --user-agent "${BrowserUA}" -sL --max-time 10 "https://www.youtube.com/premium" | grep "countryCode" | sed 's/.*"countryCode"//' | cut -f2 -d'"')
+	if [ -n "$region" ]; then
+        sleep 0
+	else
+		isCN=$(echo $tmpresult | grep 'www.google.cn')
+		if [ -n "$isCN" ]; then
+			region=CN
+		else	
+			region=US
+		fi	
+	fi	
+	
+    if [[ "$tmpresult" == "curl"* ]];then
+        echo -e " YouTube Premium      : ${RED}Network connection failed${PLAIN}"  | tee -a $log
+        return;
+    fi
+    
+    local result=$(echo $tmpresult | grep 'Premium is not available in your country')
+    if [ -n "$result" ]; then
+        echo -e " YouTube Premium      : ${RED}No${PLAIN} ${PLAIN}${GREEN} (Region: $region)${PLAIN}" | tee -a $log
+        return;
+		
+    fi
+    local result=$(echo $tmpresult | grep 'YouTube and YouTube Music ad-free')
+    if [ -n "$result" ]; then
+        echo -e " YouTube Premium      : ${GREEN}Yes (Region: $region)${PLAIN}" | tee -a $log
+        return;
+	else
+		echo -e " YouTube Premium      : ${RED}Failed${PLAIN}" | tee -a $log
+    fi
+}
+
+function YouTubeCDNTest() {
+	local tmpresult=$(curl -sS --max-time 10 https://redirector.googlevideo.com/report_mapping 2>&1)    
+    if [[ "$tmpresult" == "curl"* ]];then
+        echo -e " YouTube Region       : ${RED}Network connection failed${PLAIN}" | tee -a $log
+        return;
+    fi
+	iata=$(echo $tmpresult | grep router | cut -f2 -d'"' | cut -f2 -d"." | sed 's/.\{2\}$//' | tr [:lower:] [:upper:])
+	checkfailed=$(echo $tmpresult | grep "=>")
+	if [ -z "$iata" ] && [ -n "$checkfailed" ];then
+		CDN_ISP=$(echo $checkfailed | awk '{print $3}' | cut -f1 -d"-" | tr [:lower:] [:upper:])
+		echo -e " YouTube CDN          : ${YELLOW}Associated with $CDN_ISP${PLAIN}" | tee -a $log
+		return;
+	elif [ -n "$iata" ];then
+		curl $useNIC -s --max-time 10 "https://www.iata.org/AirportCodesSearch/Search?currentBlock=314384&currentPage=12572&airport.search=${iata}" > ~/iata.txt
+		local line=$(cat ~/iata.txt | grep -n "<td>"$iata | awk '{print $1}' | cut -f1 -d":")
+		local nline=$(expr $line - 2)
+		local location=$(cat ~/iata.txt | awk NR==${nline} | sed 's/.*<td>//' | cut -f1 -d"<")
+		echo -e " YouTube CDN          : ${GREEN}$location${PLAIN}" | tee -a $log
+		rm ~/iata.txt
+		return;
+	else
+		echo -e " YouTube CDN          : ${RED}Undetectable${PLAIN}" | tee -a $log
+		rm ~/iata.txt
+		return;
+	fi
+	
+}
+
+function UnlockBilibiliTest() {
+	#Test Mainland
+    local randsession="$(cat /dev/urandom | head -n 32 | md5sum | head -c 32)";
+    local result=$(curl --user-agent "${BrowserUA}" -fsSL --max-time 10 "https://api.bilibili.com/pgc/player/web/playurl?avid=82846771&qn=0&type=&otype=json&ep_id=307247&fourk=1&fnver=0&fnval=16&session=${randsession}&module=bangumi" 2>&1);
+	if [[ "$result" != "curl"* ]]; then
+        result="$(echo "${result}" | grep '"code"' | awk -F 'code":' '{print $2}' | awk -F ',' '{print $1}')";
+        if [ "${result}" = "0" ]; then
+            echo -e " BiliBili China       : ${GREEN}Yes (Region: Mainland Only)${PLAIN}" | tee -a $log
+			return;
+        fi
+    else
+        echo -e " BiliBili China       : ${RED}Network connection failed${PLAIN}" | tee -a $log
+		return;
+    fi
+	
+	#Test Hongkong/Macau/Taiwan
+	randsession="$(cat /dev/urandom | head -n 32 | md5sum | head -c 32)";
+	result=$(curl --user-agent "${BrowserUA}" -fsSL --max-time 10 "https://api.bilibili.com/pgc/player/web/playurl?avid=18281381&cid=29892777&qn=0&type=&otype=json&ep_id=183799&fourk=1&fnver=0&fnval=16&session=${randsession}&module=bangumi" 2>&1);
+    if [[ "$result" != "curl"* ]]; then
+        result="$(echo "${result}" | grep '"code"' | awk -F 'code":' '{print $2}' | awk -F ',' '{print $1}')";
+        if [ "${result}" = "0" ]; then
+            echo -e " BiliBili China       : ${GREEN}Yes (Region: HongKong/Macau/Taiwan Only)${PLAIN}" | tee -a $log
+			return;
+        fi
+    else
+        echo -e " BiliBili China       : ${RED}Network connection failed${PLAIN}" | tee -a $log
+		return;
+    fi
+	
+	#Test Taiwan
+	randsession="$(cat /dev/urandom | head -n 32 | md5sum | head -c 32)";
+	result=$(curl --user-agent "${BrowserUA}" -fsSL --max-time 10 "https://api.bilibili.com/pgc/player/web/playurl?avid=50762638&cid=100279344&qn=0&type=&otype=json&ep_id=268176&fourk=1&fnver=0&fnval=16&session=${randsession}&module=bangumi" 2>&1);
+	if [[ "$result" != "curl"* ]]; then
+		result="$(echo "${result}" | grep '"code"' | awk -F 'code":' '{print $2}' | awk -F ',' '{print $1}')";
+		if [ "${result}" = "0" ]; then
+            echo -e " BiliBili China       : ${GREEN}Yes (Region: Taiwan Only)${PLAIN}" | tee -a $log
+			return;
+		fi
+	else
+		echo -e " BiliBili China       : ${RED}Network connection failed${PLAIN}" | tee -a $log
+		return;
+	fi
+	echo -e " BiliBili China       : ${RED}No${PLAIN}" | tee -a $log
+}
+
+function UnlockTiktokTest() {
+	local result=$(curl --user-agent "${BrowserUA}" -fsSL --max-time 10 "https://www.tiktok.com/" 2>&1);
+    if [[ "$result" != "curl"* ]]; then
+        result="$(echo ${result} | grep 'region' | awk -F 'region":"' '{print $2}' | awk -F '"' '{print $1}')";
+		if [ -n "$result" ]; then
+			if [[ "$result" == "The #TikTokTraditions"* ]] || [[ "$result" == "This LIVE isn't available"* ]]; then
+				echo -e " TikTok               : ${RED}No${PLAIN}" | tee -a $log
+			else
+				echo -e " TikTok               : ${GREEN}Yes (Region: ${result})${PLAIN}" | tee -a $log
+			fi
+		else
+			echo -e " TikTok               : ${RED}Failed${PLAIN}" | tee -a $log
+			return
+		fi
+    else
+		echo -e " TikTok               : ${RED}Network connection failed${PLAIN}" | tee -a $log
+	fi
+}
+
+function UnlockiQiyiIntlTest() {
+	curl --user-agent "${BrowserUA}" -s -I --max-time 10 "https://www.iq.com/" >/tmp/iqiyi
+    if [ $? -eq 1 ]; then
+        echo -e " iQIYI International  : ${RED}Network connection failed${PLAIN}" | tee -a $log
+        return
+    fi
+
+    local result="$(cat /tmp/iqiyi | grep 'mod=' | awk '{print $2}' | cut -f2 -d'=' | cut -f1 -d';')";
+	rm -f /tmp/iqiyi
+
+    if [ -n "$result" ]; then
+        if [[ "$result" == "ntw" ]]; then
+            result=TW
+            echo -e " iQIYI International  : ${GREEN}Yes (Region: ${result})${PLAIN}" | tee -a $log
+            return
+        else
+            result=$(echo $result | tr [:lower:] [:upper:])
+            echo -e " iQIYI International  : ${GREEN}Yes (Region: ${result})${PLAIN}" | tee -a $log
+            return
+        fi
+    else
+        echo -e " iQIYI International  : ${RED}Failed${PLAIN}" | tee -a $log
+        return
+    fi
+}
+
+function UnlockChatGPTTest() {
+	if [[ $(curl --max-time 10 -sS https://chat.openai.com/ -I | grep "text/plain") != "" ]]
+	then
+        echo -e " ChatGPT              : ${RED}IP is BLOCKED${PLAIN}" | tee -a $log
+        return
+	fi
+    local countryCode="$(curl --max-time 10 -sS https://chat.openai.com/cdn-cgi/trace | grep "loc=" | awk -F= '{print $2}')";
+	if [ $? -eq 1 ]; then
+        echo -e " ChatGPT              : ${RED}Network connection failed${PLAIN}" | tee -a $log
+        return
+    fi
+	if [ -n "$countryCode" ]; then
+        support_countryCodes=(T1 XX AL DZ AD AO AG AR AM AU AT AZ BS BD BB BE BZ BJ BT BA BW BR BG BF CV CA CL CO KM CR HR CY DK DJ DM DO EC SV EE FJ FI FR GA GM GE DE GH GR GD GT GN GW GY HT HN HU IS IN ID IQ IE IL IT JM JP JO KZ KE KI KW KG LV LB LS LR LI LT LU MG MW MY MV ML MT MH MR MU MX MC MN ME MA MZ MM NA NR NP NL NZ NI NE NG MK NO OM PK PW PA PG PE PH PL PT QA RO RW KN LC VC WS SM ST SN RS SC SL SG SK SI SB ZA ES LK SR SE CH TH TG TO TT TN TR TV UG AE US UY VU ZM BO BN CG CZ VA FM MD PS KR TW TZ TL GB)
+		if [[ "${support_countryCodes[@]}"  =~ "${countryCode}" ]];  then
+            echo -e " ChatGPT              : ${GREEN}Yes (Region: ${countryCode})${PLAIN}" | tee -a $log
+            return
+        else
+			echo -e " ChatGPT              : ${RED}No${PLAIN}" | tee -a $log
+            return
+        fi
+    else
+        echo -e " ChatGPT              : ${RED}Failed${PLAIN}" | tee -a $log
+        return
+    fi
+}
+
+
+function StreamingMediaUnlockTest(){
+	echo -e " Unlock Test          :" | tee -a $log
+	UnlockNetflixTest
+	UnlockYouTubePremiumTest
+	YouTubeCDNTest
+	UnlockBilibiliTest
+	UnlockTiktokTest
+	UnlockiQiyiIntlTest
+	UnlockChatGPTTest
+}
+
 print_intro() {
-	printf ' Superbench.sh -- https://www.oldking.net/350.html\n' | tee -a $log
-	printf " Mode  : \e${GREEN}%s\e${PLAIN}    Version : \e${GREEN}%s${PLAIN}\n" $mode_name 1.1.7 | tee -a $log
-	printf ' Usage : wget -qO- sb.oldking.net | bash\n' | tee -a $log
+	printf ' Superbench.sh -- https://www.idcoffer.com/archives/4764\n' | tee -a $log
+	printf " Mode  : \e${GREEN}%s\e${PLAIN}    Version : \e${GREEN}%s${PLAIN}\n" $mode_name 1.3.10 | tee -a $log
+	printf ' Usage : bash <(wget -qO- https://down.vpsaff.net/linux/speedtest/superbench.sh)\n' | tee -a $log
+}
+
+function get_json_value() {
+	local json=$1
+	local key=$2
+
+	if [[ -z "$3" ]]; then
+		local num=1
+	else
+		local num=$3
+	fi
+
+	local value=$(echo "${json}" | awk -F"[,:}]" '{for(i=1;i<=NF;i++){if($i~/'${key}'\042/){print $(i+1)}}}' | tr -d '"' | sed -n ${num}p)
+
+	echo ${value}
 }
 
 sharetest() {
-	echo " Share result:" | tee -a $log
-	echo " · $result_speed" | tee -a $log
+	if [[ -n "$GEEKBENCH_URL" ]] || [[ -n "$result_speed" ]]; then
+		echo " Share result:" | tee -a $log
+	else
+		echo " Share result:"
+	fi
+	if [[ -n "$GEEKBENCH_URL" ]]; then
+		echo " · $GEEKBENCH_URL" | tee -a $log
+	fi
+	if [[ -n "$result_speed" ]]; then
+		echo " · $result_speed" | tee -a $log
+	fi
 	log_preupload
 	case $1 in
+	'wmlabs')
+		local wmlabsResult=$(curl -X POST -k -s --data-urlencode "content@$log_up" -d "title=superbench.sh的测试报告" -d "author=superbench.sh" -d "ttl=-1" "https://paste.wmlabs.net/" 2>&1);
+		share_link="https://paste.wmlabs.net/p/"$(get_json_value $wmlabsResult id);;
 	'ubuntu')
 		share_link="https://paste.ubuntu.com"$( curl -v --data-urlencode "content@$log_up" -d "poster=superbench.sh" -d "syntax=text" "https://paste.ubuntu.com" 2>&1 | \
 			grep "Location" | awk '{print $3}' );;
@@ -506,9 +907,8 @@ log_preupload() {
 cleanup() {
 	rm -f test_file_*
 	rm -rf speedtest*
-	rm -f fast_com*
-	rm -f tools.py
-	rm -f ip_json.json
+	rm -rf besttrace4*
+	rm -rf geekbench*
 }
 
 bench_all(){
@@ -523,14 +923,24 @@ bench_all(){
 	print_system_info;
 	ip_info4;
 	next;
-	print_io;
+	StreamingMediaUnlockTest;
 	next;
-	print_speedtest;
+	print_io;
+	if [[ "$GeekbenchTest" == "Y" ]]; then
+		next;
+		geekbench;
+	fi
+	next;
+	print_china_speedtest;
+	next;
+	print_global_speedtest;
+	next;
+	print_besttrace_test;
 	next;
 	print_end_time;
 	next;
 	cleanup;
-	sharetest ubuntu;
+	sharetest wmlabs;
 }
 
 fast_bench(){
@@ -544,6 +954,8 @@ fast_bench(){
 	get_system_info;
 	print_system_info;
 	ip_info4;
+	next;
+	StreamingMediaUnlockTest;
 	next;
 	print_io fast;
 	next;
@@ -561,26 +973,46 @@ true > $speedLog
 
 case $1 in
 	'info'|'-i'|'--i'|'-info'|'--info' )
+		GeekbenchTest='N';
 		about;sleep 3;next;get_system_info;print_system_info;next;;
     'version'|'-v'|'--v'|'-version'|'--version')
+		GeekbenchTest='N';
 		next;about;next;;
    	'io'|'-io'|'--io'|'-drivespeed'|'--drivespeed' )
 		next;print_io;next;;
 	'speed'|'-speed'|'--speed'|'-speedtest'|'--speedtest'|'-speedcheck'|'--speedcheck' )
-		about;benchinit;next;print_speedtest;next;cleanup;;
+		GeekbenchTest='N';
+		about;benchinit;clear;next;print_china_speedtest;next;cleanup;;
 	'ip'|'-ip'|'--ip'|'geoip'|'-geoip'|'--geoip' )
 		about;benchinit;next;ip_info4;next;cleanup;;
 	'bench'|'-a'|'--a'|'-all'|'--all'|'-bench'|'--bench' )
 		bench_all;;
+	'besttrace'|'-b'|'--b'|'--besttrace' )
+		GeekbenchTest='N';
+		print_besttrace_test;;
 	'about'|'-about'|'--about' )
+		GeekbenchTest='N';
 		about;;
 	'fast'|'-f'|'--f'|'-fast'|'--fast' )
 		fast_bench;;
+	'geekbench'|'-g'|'--geekbench' )
+		GeekbenchVer=6;
+		geekbench;;
+	'--no-geekbench' )
+		GeekbenchTest='N';
+		bench_all;;
+	'media'|'-m'|'--media' )
+		GeekbenchTest='N';
+		mode_name="MediaTest";
+		about;sleep 3;clear;next;print_intro;next;ip_info4;next;
+		StreamingMediaUnlockTest;next;
+		log_preupload;	
+		sharetest wmlabs;;
 	'share'|'-s'|'--s'|'-share'|'--share' )
 		bench_all;
 		is_share="share"
 		if [[ $2 == "" ]]; then
-			sharetest ubuntu;
+			sharetest wmlabs;
 		else
 			sharetest $2;
 		fi
@@ -595,7 +1027,7 @@ if [[  ! $is_share == "share" ]]; then
 	case $2 in
 		'share'|'-s'|'--s'|'-share'|'--share' )
 			if [[ $3 == '' ]]; then
-				sharetest ubuntu;
+				sharetest wmlabs;
 			else
 				sharetest $3;
 			fi
