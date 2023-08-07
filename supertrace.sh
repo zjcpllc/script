@@ -82,7 +82,7 @@ trace() {
         next
         echo -e "${SKYBLUE}Round $((i+1)) - SuperTrace 路由到 - ${locName[$i]}${PLAIN}"
         next
-        ./supertrace -q 1 ${ipAddr[$i]}
+        ./supertrace -q 1 -g cn ${ipAddr[$i]}
         echo ""
         echo ""
     done
